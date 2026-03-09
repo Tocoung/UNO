@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Grand UNO Multiplayer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/index-Chh0iBEc.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BF8nCJjv.css">
+</head>
+
+<body>
+  <!-- Setup Overlay -->
+  <div id="setup-overlay" class="overlay">
+    <div class="modal">
+      <h1 class="logo-text">UNO<span class="neon-glow">.</span></h1>
+      <p>Join or Create a Room</p>
+      <input type="text" id="player-name-input" placeholder="Your Name" />
+      <input type="text" id="room-name-input" placeholder="Room Name (e.g. Physics_Squad)" />
+      <button id="join-btn" class="primary-btn">Join / Create</button>
+      <div id="setup-error" class="error-msg"></div>
+    </div>
+  </div>
+
+  <!-- Rules Modal -->
+  <div id="rules-overlay" class="overlay hidden">
+    <div class="modal large">
+      <h2>UNO Rules</h2>
+      <div class="rules-content">
+        <p><strong>Goal:</strong> Be the first player to get rid of all your cards.</p>
+        <p><strong>Play:</strong> Match the top card of the discard pile by color or number/symbol.</p>
+        <p><strong>Action Cards:</strong></p>
+        <ul>
+          <li>Skip: Next player skips their turn.</li>
+          <li>Reverse: Reverses direction of play.</li>
+          <li>Draw 2: Next player draws 2 cards and skips turn.</li>
+          <li>Wild: Change the color being played.</li>
+          <li>Wild Draw 4: Change color AND next player draws 4 (skipping turn).</li>
+        </ul>
+      </div>
+      <button id="close-rules-btn" class="secondary-btn">Close</button>
+    </div>
+  </div>
+
+  <!-- Leaderboard Modal -->
+  <div id="leaderboard-overlay" class="overlay hidden">
+    <div class="modal">
+      <h2>🏆 Round Over! 🏆</h2>
+      <ol id="leaderboard-list" class="leaderboard-list"></ol>
+      <button id="close-leaderboard-btn" class="primary-btn">Play Again</button>
+    </div>
+  </div>
+
+  <!-- Main Game Board -->
+  <div id="game-board" class="hidden">
+    <!-- Opponents Area -->
+    <div id="opponents-container"></div>
+
+    <!-- Center Table -->
+    <div id="center-table">
+      <div class="deck-area">
+        <div id="draw-pile" class="card back"></div>
+        <div id="discard-pile"></div>
+      </div>
+      <div id="status-message"></div>
+      <div id="color-picker" class="hidden">
+        <div class="color-btn red" data-color="red"></div>
+        <div class="color-btn blue" data-color="blue"></div>
+        <div class="color-btn green" data-color="green"></div>
+        <div class="color-btn yellow" data-color="yellow"></div>
+      </div>
+    </div>
+
+    <!-- Player Area -->
+    <div id="player-area">
+      <div class="controls-bar">
+        <span id="room-display">Room: ...</span>
+        <button id="add-bot-btn" class="secondary-btn hidden">Add Bot</button>
+        <button id="start-game-btn" class="primary-btn hidden">Start Game</button>
+        <button id="rules-btn" class="secondary-btn">Rules</button>
+      </div>
+      <div id="player-hand" class="hand-curve"></div>
+    </div>
+  </div>
+
+  <!-- Particles Container for Animations -->
+  <div id="particles-container"></div>
+
+</body>
+
+</html>

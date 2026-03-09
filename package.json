@@ -1,0 +1,17 @@
+{
+    "name": "grand-uno-multiplayer",
+    "version": "1.0.0",
+    "description": "A visually grand real-time multiplayer UNO game",
+    "main": "backend/server.js",
+    "scripts": {
+        "start": "cd backend && node server.js",
+        "build": "cd frontend && npm install && npm run build && cd ../backend && npm install",
+        "dev": "concurrently \"cd backend && node server.js\" \"cd frontend && npm run dev\""
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "dependencies": {
+        "concurrently": "^8.2.2"
+    }
+}
