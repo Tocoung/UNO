@@ -36,6 +36,7 @@ const DOM = {
 
 let currentState = null;
 let myPlayerId = null;
+let selectedCardIndex = null;
 
 // Initialization
 function init() {
@@ -119,6 +120,14 @@ function init() {
 
     setupSocketListeners(renderState, (msg) => {
         alert(msg);
+    });
+
+    // Deselect card if clicking outside the hand
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.hand-card-wrapper') && selectedCardIndex !== null) {
+            selectedCardIndex = null;
+            renderState(currentState); // Re-render to reset visually
+        }
     });
 }
 
@@ -260,27 +269,45 @@ function renderState(state) {
             const angle = -maxAngle + (index * angleStep);
             const translateY = Math.abs(angle) * 1.5;
 
-            wrapper.style.transform = `rotate(${angle}deg) translateY(${translateY}px)`;
             wrapper.style.zIndex = index;
 
-            const cardEl = createCardHTML(card, playable, () => {
+            // Apply selected visual state
+            if (selectedCardIndex === index) {
+                // If it's selected, keep it popped up
+                wrapper.style.transform = wrapper.style.transform.replace(/translateY\([\d.]+px\)/, 'translateY(-20px) scale(1.1)');
+                wrapper.style.zIndex = 100;
+            }
+
+            const cardEl = createCardHTML(card, playable, (e) => {
                 if (playable) {
-                    // Play card
-                    socket.emit('playCard', { roomId: state.roomId, cardIndex: index });
+                    e.stopPropagation(); // Prevent document click from deselecting immediately
+                    if (selectedCardIndex === index) {
+                        // Play card
+                        socket.emit('playCard', { roomId: state.roomId, cardIndex: index });
+                        selectedCardIndex = null;
+                    } else {
+                        // Select card
+                        selectedCardIndex = index;
+                        renderState(state); // Re-render to apply selection visuals
+                    }
                 }
             });
 
             wrapper.appendChild(cardEl);
             DOM.board.hand.appendChild(wrapper);
 
-            // Hover adjustment trick
+            // Hover adjustment trick (Desktop still gets hover benefits)
             wrapper.addEventListener('mouseenter', () => {
-                wrapper.style.transform = wrapper.style.transform.replace(/translateY\([\d.]+px\)/, 'translateY(-20px) scale(1.1)');
-                wrapper.style.zIndex = 100;
+                if (selectedCardIndex !== index) {
+                    wrapper.style.transform = wrapper.style.transform.replace(/translateY\([\d.]+px\)/, 'translateY(-20px) scale(1.1)');
+                    wrapper.style.zIndex = 100;
+                }
             });
             wrapper.addEventListener('mouseleave', () => {
-                wrapper.style.transform = `rotate(${angle}deg) translateY(${translateY}px)`;
-                wrapper.style.zIndex = index;
+                if (selectedCardIndex !== index) {
+                    wrapper.style.transform = `rotate(${angle}deg) translateY(${translateY}px)`;
+                    wrapper.style.zIndex = index;
+                }
             });
         });
     }

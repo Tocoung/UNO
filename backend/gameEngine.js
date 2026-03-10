@@ -254,7 +254,7 @@ export class GameEngine {
             }
             setTimeout(() => {
                 this.makeAIMove();
-            }, 800 + Math.random() * 400); // Delay between 0.8s and 1.2s
+            }, 2000);
         }
     }
 
