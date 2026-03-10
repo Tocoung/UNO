@@ -192,25 +192,9 @@ input:focus {
 
 .deck-area {
   display: flex;
-  gap: 3rem;
+  gap: 2rem;
   align-items: center;
-  justify-content: center;
   position: relative;
-  width: 100%;
-}
-
-#draw-pile,
-#discard-pile {
-  position: relative;
-  width: 100px;
-  height: 150px;
-  flex-shrink: 0;
-}
-
-#discard-pile .card {
-  position: absolute;
-  top: 0;
-  left: 0;
 }
 
 #status-message {

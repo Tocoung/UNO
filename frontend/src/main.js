@@ -269,12 +269,19 @@ function renderState(state) {
             const angle = -maxAngle + (index * angleStep);
             const translateY = Math.abs(angle) * 1.5;
 
+            // Calculate horizontal spread so they don't pile up on each other
+            const baseSpacing = 40;
+            const spacing = Math.max(20, baseSpacing - (total * 1.5)); // Compress slightly as cards increase, but keep a minimum 20px
+            const translateX = (index - (total - 1) / 2) * spacing;
+
+            // Apply transforms (Translate X first for spreading, then Y and Rotate for curve)
+            wrapper.style.transform = `translateX(${translateX}px) translateY(${translateY}px) rotate(${angle}deg)`;
             wrapper.style.zIndex = index;
 
             // Apply selected visual state
             if (selectedCardIndex === index) {
                 // If it's selected, keep it popped up
-                wrapper.style.transform = wrapper.style.transform.replace(/translateY\([\d.]+px\)/, 'translateY(-20px) scale(1.1)');
+                wrapper.style.transform = `translateX(${translateX}px) translateY(-50px) scale(1.15) rotate(0deg)`;
                 wrapper.style.zIndex = 100;
             }
 
@@ -299,13 +306,13 @@ function renderState(state) {
             // Hover adjustment trick (Desktop still gets hover benefits)
             wrapper.addEventListener('mouseenter', () => {
                 if (selectedCardIndex !== index) {
-                    wrapper.style.transform = wrapper.style.transform.replace(/translateY\([\d.]+px\)/, 'translateY(-20px) scale(1.1)');
+                    wrapper.style.transform = `translateX(${translateX}px) translateY(-50px) scale(1.15) rotate(0deg)`;
                     wrapper.style.zIndex = 100;
                 }
             });
             wrapper.addEventListener('mouseleave', () => {
                 if (selectedCardIndex !== index) {
-                    wrapper.style.transform = `rotate(${angle}deg) translateY(${translateY}px)`;
+                    wrapper.style.transform = `translateX(${translateX}px) translateY(${translateY}px) rotate(${angle}deg)`;
                     wrapper.style.zIndex = index;
                 }
             });
