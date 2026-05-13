@@ -17,8 +17,10 @@ export class GameEngine {
         this.status = 'WAITING'; // WAITING, PLAYING, WAITING_COLOR, FINISHED
         this.finishedRank = []; // Array of player IDs in order of finishing
         this.pendingWildPlayer = null;
+        this.pendingWildPlayer = null;
         this.pendingWildCard = null;
         this.pendingSkipNext = false;
+        this.turnTimeout = null;
     }
 
     generateDeck() {
@@ -45,8 +47,8 @@ export class GameEngine {
     }
 
     addPlayer(id, name, isAI = false) {
-        if (this.status !== 'WAITING') return false;
         if (this.players.some(p => p.id === id)) return true;
+        if (this.status !== 'WAITING') return false;
         this.players.push({ id, name, hand: [], isAI });
         return true;
     }
@@ -56,11 +58,49 @@ export class GameEngine {
     }
 
     removePlayer(id) {
+        const isCurrent = this.getCurrentPlayer() === id;
         this.players = this.players.filter(p => p.id !== id);
-        if (this.status === 'PLAYING') {
-            if (this.currentTurnIndex >= this.players.length) {
-                this.currentTurnIndex = 0;
+        if (this.status === 'PLAYING' || this.status === 'WAITING_COLOR') {
+            if (this.players.length <= 1) {
+                this.status = 'FINISHED';
+                if (this.turnTimeout) clearTimeout(this.turnTimeout);
+            } else {
+                if (this.currentTurnIndex >= this.players.length) {
+                    this.currentTurnIndex = 0;
+                }
+                if (isCurrent) {
+                    if (this.status === 'WAITING_COLOR') {
+                        this.status = 'PLAYING';
+                    }
+                    this.startTurnTimer();
+                    this.checkAIMove();
+                }
             }
+            this.broadcast(this.roomId);
+        }
+    }
+
+    startTurnTimer() {
+        if (this.turnTimeout) clearTimeout(this.turnTimeout);
+        if (this.status === 'FINISHED') return;
+
+        const currentPlayerId = this.status === 'WAITING_COLOR' ? this.pendingWildPlayer : this.getCurrentPlayer();
+        const player = this.players.find(p => p.id === currentPlayerId);
+
+        if (!player || player.isAI) return;
+
+        // Start 60 second timer
+        this.turnTimeout = setTimeout(() => {
+            this.handleTurnTimeout();
+        }, 60000);
+    }
+
+    handleTurnTimeout() {
+        if (this.status === 'WAITING_COLOR') {
+            const randomColor = COLORS[Math.floor(Math.random() * COLORS.length)];
+            this.chooseColor(this.pendingWildPlayer, randomColor);
+        } else if (this.status === 'PLAYING') {
+            this.drawCard(this.getCurrentPlayer());
         }
     }
 
@@ -84,6 +124,7 @@ export class GameEngine {
         this.currentTurnIndex = Math.floor(Math.random() * this.players.length);
         this.finishedRank = [];
         this.status = 'PLAYING';
+        this.startTurnTimer();
         this.broadcast(this.roomId);
         this.checkAIMove();
     }
@@ -100,6 +141,8 @@ export class GameEngine {
             // Safety break if somehow all players are finished but game hasn't ended
             if (attempts > this.players.length) break;
         } while (this.players[this.currentTurnIndex].hand.length === 0);
+        
+        this.startTurnTimer();
     }
 
     isValidPlay(card) {
@@ -150,6 +193,7 @@ export class GameEngine {
                 this.status = 'WAITING_COLOR';
                 this.pendingWildPlayer = player.id;
                 this.pendingSkipNext = skipNext;
+                this.startTurnTimer();
                 this.broadcast(this.roomId);
                 return; // Stop turn progression until color is chosen
             }

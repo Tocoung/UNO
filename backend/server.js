@@ -30,6 +30,7 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 3000;
 const rooms = {};
+const socketToPlayer = {}; // Map socket.id to { roomId, playerId }
 
 // When a room is created or modified, broadcast state
 const broadcastGameState = (roomId) => {
@@ -41,8 +42,7 @@ const broadcastGameState = (roomId) => {
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
-  socket.on('joinRoom', ({ roomId, playerName }) => {
-    // Basic Custom Room Creation/Join logic
+  socket.on('joinRoom', ({ roomId, playerName, playerId }) => {
     socket.join(roomId);
 
     if (!rooms[roomId]) {
@@ -51,11 +51,15 @@ io.on('connection', (socket) => {
     }
 
     const game = rooms[roomId];
-    const joined = game.addPlayer(socket.id, playerName);
+    // Use provided playerId or generate a new one
+    const pId = playerId || 'player_' + Math.random().toString(36).substring(2, 15);
+    socketToPlayer[socket.id] = { roomId, playerId: pId };
 
-    if (joined) {
-      console.log(`${playerName} (${socket.id}) joined room ${roomId}`);
-      socket.emit('joined', { roomId, playerId: socket.id });
+    const joined = game.addPlayer(pId, playerName);
+
+    if (joined || game.hasPlayer(pId)) {
+      console.log(`${playerName} (${pId}) joined/rejoined room ${roomId} on socket ${socket.id}`);
+      socket.emit('joined', { roomId, playerId: pId, playerName });
       broadcastGameState(roomId);
     } else {
       socket.emit('error', 'Cannot join room. Game may have already started or room is full.');
@@ -85,40 +89,49 @@ io.on('connection', (socket) => {
 
   socket.on('playCard', ({ roomId, cardIndex }) => {
     const game = rooms[roomId];
-    if (game && game.getCurrentPlayer() === socket.id) {
-      game.playCard(socket.id, cardIndex);
+    const pId = socketToPlayer[socket.id]?.playerId;
+    if (game && pId && game.getCurrentPlayer() === pId) {
+      game.playCard(pId, cardIndex);
     }
   });
 
   socket.on('drawCard', (roomId) => {
     const game = rooms[roomId];
-    if (game && game.getCurrentPlayer() === socket.id) {
-      game.drawCard(socket.id);
+    const pId = socketToPlayer[socket.id]?.playerId;
+    if (game && pId && game.getCurrentPlayer() === pId) {
+      game.drawCard(pId);
     }
   });
 
   socket.on('chooseColor', ({ roomId, color }) => {
     const game = rooms[roomId];
-    if (game && game.status === 'WAITING_COLOR' && game.pendingWildPlayer === socket.id) {
-      game.chooseColor(socket.id, color);
+    const pId = socketToPlayer[socket.id]?.playerId;
+    if (game && pId && game.status === 'WAITING_COLOR' && game.pendingWildPlayer === pId) {
+      game.chooseColor(pId, color);
+    }
+  });
+
+  socket.on('leaveRoom', (roomId) => {
+    const game = rooms[roomId];
+    const pId = socketToPlayer[socket.id]?.playerId;
+    if (game && pId && game.hasPlayer(pId)) {
+      game.removePlayer(pId);
+      socket.leave(roomId);
+      delete socketToPlayer[socket.id];
+      if (game.players.length === 0) {
+        delete rooms[roomId];
+        console.log(`Room ${roomId} deleted because it became empty.`);
+      } else {
+        broadcastGameState(roomId);
+      }
     }
   });
 
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
-    // Clean up players from rooms
-    for (const roomId in rooms) {
-      const game = rooms[roomId];
-      if (game.hasPlayer(socket.id)) {
-        game.removePlayer(socket.id);
-        if (game.players.length === 0) {
-          delete rooms[roomId];
-          console.log(`Room ${roomId} deleted because it became empty.`);
-        } else {
-          broadcastGameState(roomId);
-        }
-      }
-    }
+    // We do NOT remove the player from the game here anymore!
+    // They stay in the room and can rejoin if they reconnect.
+    delete socketToPlayer[socket.id];
   });
 });
 

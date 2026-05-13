@@ -20,7 +20,8 @@ const DOM = {
         opponents: document.getElementById('opponents-container'),
         status: document.getElementById('status-message'),
         colorPicker: document.getElementById('color-picker'),
-        colorBtns: document.querySelectorAll('.color-btn')
+        colorBtns: document.querySelectorAll('.color-btn'),
+        exitBtn: document.getElementById('exit-btn')
     },
     rules: {
         btn: document.getElementById('rules-btn'),
@@ -44,6 +45,20 @@ function init() {
 
     socket.on('connect', () => {
         console.log("Connected to server with ID:", socket.id);
+        
+        // Auto-rejoin if session exists
+        const session = sessionStorage.getItem('uno_session');
+        if (session) {
+            const { roomId, playerName, playerId } = JSON.parse(session);
+            console.log("Found existing session. Rejoining...");
+            socket.emit('joinRoom', { roomId, playerName, playerId });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        if (currentState && currentState.status === 'PLAYING') {
+            DOM.board.status.textContent = 'Connection Lost. Waiting for reconnect...';
+        }
     });
 
     socket.on('connect_error', (err) => {
@@ -68,8 +83,26 @@ function init() {
         }
     });
 
-    socket.on('joined', ({ roomId, playerId }) => {
+    if (DOM.board.exitBtn) {
+        DOM.board.exitBtn.addEventListener('click', () => {
+            if (currentState && currentState.roomId) {
+                socket.emit('leaveRoom', currentState.roomId);
+            }
+            sessionStorage.removeItem('uno_session');
+            currentState = null;
+            myPlayerId = null;
+            DOM.setup.overlay.classList.remove('hidden');
+            DOM.board.container.classList.add('hidden');
+            DOM.setup.playerInput.value = '';
+            DOM.setup.roomInput.value = '';
+        });
+    }
+
+    socket.on('joined', ({ roomId, playerId, playerName }) => {
         myPlayerId = playerId;
+        // Save persistent session
+        sessionStorage.setItem('uno_session', JSON.stringify({ roomId, playerId, playerName }));
+        
         DOM.setup.overlay.classList.add('hidden');
         DOM.board.container.classList.remove('hidden');
         DOM.board.roomDisplay.textContent = `Room: ${roomId}`;
