@@ -318,7 +318,7 @@ input:focus {
 
 .hand-card-wrapper {
   position: absolute;
-  bottom: -20px;
+  bottom: 80px;
   transform-origin: bottom center;
   transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s;
 }

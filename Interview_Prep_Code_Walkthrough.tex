@@ -1,0 +1,352 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{hyperref}
+\usepackage{minted}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{titlesec}
+\usepackage{parskip}
+
+\title{\textbf{UNO Multiplayer Web Application}\\ \Large Comprehensive Codebase \& Architecture Walkthrough for Software Engineering Interviews}
+\author{Candidate Interview Preparation Guide}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction and Architecture Overview}
+
+This document provides a highly detailed, line-by-line breakdown of a real-time multiplayer UNO web application. As a software engineering candidate, being able to articulate \textit{why} and \textit{how} code is structured is as important as writing it. This project is built using a modern, lightweight tech stack:
+
+\begin{itemize}
+    \item \textbf{Backend:} Node.js with Express (for serving static files) and Socket.io (for real-time WebSocket communication).
+    \item \textbf{Frontend:} Vanilla JavaScript, HTML5, and CSS3, bundled using Vite.
+    \item \textbf{Architecture Type:} Client-Server, where the Server is completely Authoritative.
+\end{itemize}
+
+\subsection{Why an Authoritative Server?}
+In multiplayer game development, the client (the player's browser) should never be trusted. If the frontend JavaScript decided whether a move was valid, a malicious player could modify the code to play any card they wanted. Therefore, the server holds the "Single Source of Truth." The frontend's only job is to capture user clicks, send those "intents" to the server, and then render whatever state the server sends back.
+
+\section{Backend: The Server Initialization (\texttt{server.js})}
+The \texttt{server.js} file is the entry point of the backend application. It wires together HTTP serving and WebSocket real-time communication.
+
+\begin{minted}[bgcolor=lightgray!20,linenos]{javascript}
+import express from 'express';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { GameEngine } from './gameEngine.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+\end{minted}
+
+\textbf{Explanation:} 
+We import \texttt{express} to handle HTTP routes and \texttt{createServer} from the native Node \texttt{http} module. We need the native HTTP server because Socket.io must attach to it to upgrade standard HTTP requests into persistent WebSocket connections. Because we are using ES Modules (\texttt{import} instead of \texttt{require}), \texttt{\_\_dirname} is not available by default, so we construct it using \texttt{fileURLToPath}.
+
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=12]{javascript}
+const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
+});
+
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
+app.use((req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+});
+\end{minted}
+
+\textbf{Explanation:} 
+\texttt{express.static} serves our bundled frontend files. The \texttt{app.use()} acts as a "catch-all" route. This is vital for Single Page Applications (SPAs). If a user refreshes the page, the server will blindly serve \texttt{index.html}, passing routing responsibilities to the frontend.
+The \texttt{io} object represents our Socket server. CORS (Cross-Origin Resource Sharing) is configured to allow any origin to connect, which prevents browser security blocks during development.
+
+\subsection{Socket.io Event Handling}
+Socket.io is an event-driven library. The server listens for specific custom events emitted by the client.
+
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=41]{javascript}
+io.on('connection', (socket) => {
+  console.log(`User connected: ${socket.id}`);
+
+  socket.on('createRoom', ({ playerName, roomId }) => {
+    if (rooms[roomId]) return socket.emit('error', 'Room already exists');
+    
+    // Create new GameEngine instance
+    rooms[roomId] = new GameEngine(roomId, (event, data) => {
+        io.to(roomId).emit(event, data);
+    });
+    
+    socket.join(roomId);
+    rooms[roomId].addPlayer(socket.id, playerName, false);
+    broadcastGameState(roomId);
+  });
+// ... 
+\end{minted}
+
+\textbf{Explanation:} 
+When a user opens the website, their browser connects to the server, firing the \texttt{connection} event. The server gives them a unique \texttt{socket.id}.
+When the client clicks "Create Room", they emit a \texttt{createRoom} event. The server listens for this.
+\begin{itemize}
+    \item \texttt{socket.join(roomId)} is a built-in Socket.io feature that subscribes this specific user to a "channel" (the room). If we broadcast to this room, only players inside it receive the message.
+    \item We instantiate the \texttt{GameEngine}. We pass a callback function to the engine: \texttt{(event, data) => io.to(roomId).emit(event, data)}. This is a beautiful piece of decoupling; the \texttt{GameEngine} knows nothing about Socket.io. It just calls a function when it wants to speak, and \texttt{server.js} translates that into a network broadcast.
+\end{itemize}
+
+\section{Backend: The Game Engine (\texttt{gameEngine.js})}
+This is the "brain" of the application. It is completely isolated from the network logic. It uses Object-Oriented Programming (OOP) principles.
+
+\begin{minted}[bgcolor=lightgray!20,linenos]{javascript}
+export class GameEngine {
+    constructor(roomId, emitEvent) {
+        this.roomId = roomId;
+        this.emitEvent = emitEvent; // Callback for network
+        this.players = [];
+        this.deck = [];
+        this.discardPile = [];
+        this.status = 'WAITING'; // WAITING, PLAYING, FINISHED, WAITING_COLOR
+        this.direction = 1; // 1 for clockwise, -1 for counter-clockwise
+        this.currentTurnIndex = 0;
+        // ...
+    }
+\end{minted}
+
+\textbf{Explanation:} 
+The constructor initializes the game state. Tracking \texttt{direction} as \texttt{1} or \texttt{-1} is an elegant mathematical way to handle UNO's "Reverse" card. To advance to the next player, we simply do \texttt{currentIndex + direction}. 
+
+\subsection{Deck Generation}
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=61]{javascript}
+    generateDeck() {
+        const colors = ['red', 'blue', 'green', 'yellow'];
+        const types = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 
+                       'skip', 'reverse', 'draw2'];
+        let newDeck = [];
+        
+        for (let color of colors) {
+            for (let type of types) {
+                newDeck.push({ color, type, isWild: false });
+                if (type !== '0') {
+                    newDeck.push({ color, type, isWild: false });
+                }
+            }
+        }
+        // ... add wilds and shuffle
+    }
+\end{minted}
+
+\textbf{Explanation:} 
+This creates a standard 108-card UNO deck. Notice that every color has one '0' card, but two of every other number and action card. This nested loop structure automatically generates the correct distribution of cards efficiently. The deck is then shuffled algorithmically using a random sort.
+
+\subsection{Playing a Card}
+The most complex logic is inside \texttt{playCard(playerId, cardIndex)}.
+
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=120]{javascript}
+    playCard(playerId, cardIndex) {
+        if (this.status !== 'PLAYING') return;
+        const player = this.players[this.currentTurnIndex];
+        if (player.id !== playerId) return; 
+
+        const card = player.hand[cardIndex];
+        const topCard = this.discardPile[this.discardPile.length - 1];
+
+        // Validation Rule
+        const isValid = card.color === 'black' || 
+                        card.color === this.activeColor || 
+                        card.type === topCard.type;
+
+        if (!isValid) return;
+
+        // Move card from hand to discard pile
+        player.hand.splice(cardIndex, 1);
+        this.discardPile.push(card);
+        this.activeColor = card.color !== 'black' ? card.color : null;
+\end{minted}
+
+\textbf{Explanation:} 
+This method enforces the Authoritative Server model. 
+1. It verifies the game is actually running.
+2. It verifies that the player attempting to play is actually the player whose turn it is (\texttt{player.id !== playerId}). This prevents players from hacking the client to play out of turn.
+3. It performs UNO validation: You can only play if the card is black (Wild), matches the current color, or matches the current number/symbol type.
+4. If valid, \texttt{splice} removes it from the player's array, and \texttt{push} drops it onto the pile.
+
+\subsection{Handling Action Cards}
+Once a card is played, the game must process "Action" effects (Skip, Draw 2, Wild).
+
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=145]{javascript}
+        if (card.type === 'skip') {
+            this.nextTurn(); // Skips the immediate next player 
+        } else if (card.type === 'reverse') {
+            this.direction *= -1;
+            if (this.players.length === 2) this.nextTurn(); // Acts as a skip in 1v1
+        } else if (card.type === 'draw2') {
+            this.nextTurn();
+            this.drawCards(this.players[this.currentTurnIndex], 2);
+        }
+\end{minted}
+
+\textbf{Explanation:}
+\begin{itemize}
+    \item \textbf{Skip:} We call \texttt{this.nextTurn()} early. When the \texttt{finalizeTurn()} method runs later, it calls \texttt{nextTurn()} again, effectively skipping a person.
+    \item \textbf{Reverse:} We multiply \texttt{this.direction} by \texttt{-1}. Note the edge case: in a 2-player game, Reverse acts exactly like a Skip to prevent the game from getting stuck.
+    \item \textbf{Draw 2:} We advance the turn to the victim, force them to draw 2 cards, and then they will lose that turn.
+\end{itemize}
+
+\subsection{Artificial Intelligence (Bots)}
+To make the game playable alone, we added bots. The bot logic is highly constrained purposely to seem human.
+
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=259]{javascript}
+    makeAIMove() {
+        const bot = this.players[this.currentTurnIndex];
+        let playableIndices = [];
+        
+        // Find all cards the bot is legally allowed to play
+        bot.hand.forEach((c, idx) => {
+            if (c.color === 'black' || c.color === this.activeColor || 
+                (this.discardPile.length && c.type === this.discardPile[...].type)) {
+                playableIndices.push(idx);
+            }
+        });
+
+        if (playableIndices.length > 0) {
+            // Pick a random playable card
+            const randomIndex = playableIndices[Math.floor(Math.random() * playableIndices.length)];
+            this.playCard(bot.id, randomIndex);
+        } else {
+            // Bot must draw
+            this.drawCard(bot.id);
+        }
+    }
+\end{minted}
+
+\textbf{Explanation:} 
+This is a "Level 1 AI." It does not plan ahead or save Wild cards strategically. It iterates over its hand, identifies all valid moves, and picks one entirely at random. 
+\textbf{Interview Tip:} To scale this to a "Level 2 AI", you would assign a "weight" or "priority" to cards. For example, play color matches first, save Wild cards for emergencies, or count cards to guess what color opponents lack.
+
+\section{Frontend: The UI and Socket Logic (\texttt{main.js})}
+The frontend is built without React or Vue, utilizing deep DOM manipulation to demonstrate pure Javascript proficiency.
+
+\begin{minted}[bgcolor=lightgray!20,linenos]{javascript}
+import { initSocket, setupSocketListeners } from './socket.js';
+
+let currentState = null;
+let myPlayerId = null;
+let selectedCardIndex = null;
+
+const DOM = {
+    setup: {
+        overlay: document.getElementById('setup-overlay'),
+        joinBtn: document.getElementById('join-btn'),
+        // ...
+    },
+    board: {
+        container: document.getElementById('game-board'),
+        hand: document.getElementById('player-hand'),
+        discardPile: document.getElementById('discard-pile'),
+    }
+};
+\end{minted}
+
+\textbf{Explanation:}
+Caching DOM elements into a single \texttt{DOM} object at the top of the file prevents the code from querying the DOM (using \texttt{document.getElementById}) repeatedly during rendering loops. Querying the DOM is computationally expensive; caching it is a massive performance optimization.
+
+\subsection{The Render Loop (State Machine)}
+The server frequently emits the entire game state. The client has a function \texttt{renderState(state)} that paints this state to the screen.
+
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=188]{javascript}
+function renderState(state) {
+    currentState = state;
+
+    if (state.status === 'WAITING') {
+        DOM.setup.overlay.classList.add('hidden');
+        DOM.board.container.classList.remove('hidden');
+        // Show start button only if I am the host (first player)
+        if (state.players[0].id === myPlayerId) {
+            DOM.board.startBtn.classList.remove('hidden');
+        }
+    }
+    // ...
+\end{minted}
+
+\textbf{Explanation:} 
+This acts exactly like a React component's \texttt{render()} method, but written by hand. The UI is purely a reflection of \texttt{currentState}. If the server says the game is \texttt{WAITING}, we display the lobby buttons. If it says \texttt{PLAYING}, we hide them.
+
+\subsection{Curved Hand Mathematics}
+To make the UNO game look premium, player hands are fanned out in a curve, just like holding real cards.
+
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=265]{javascript}
+    me.hand.forEach((card, index) => {
+        const total = me.hand.length;
+        const maxAngle = 40; // Max rotation angle for outermost cards
+        
+        // Step size between cards
+        const angleStep = total > 1 ? (maxAngle * 2) / (total - 1) : 0;
+        
+        // Calculate exact angle (-40 to +40)
+        const angle = -maxAngle + (index * angleStep);
+        
+        // Calculate Y-axis drop to form an arc
+        const translateY = Math.abs(angle) * 1.5;
+
+        // Calculate horizontal separation
+        const baseSpacing = 40; 
+        const spacing = Math.max(20, baseSpacing - (total * 1.5));
+        const translateX = (index - (total - 1) / 2) * spacing;
+
+        wrapper.style.transform = `translateX(${translateX}px) 
+                                   translateY(${translateY}px) 
+                                   rotate(${angle}deg)`;
+    });
+\end{minted}
+
+\textbf{Explanation:} 
+This is an excellent example of UI geometry mapping. We want the cards to span from -40 degrees to +40 degrees.
+\begin{itemize}
+    \item \texttt{angleStep} dynamically determines how much rotation is needed between each card based on how many cards we hold.
+    \item \texttt{translateY} forces cards positioned at higher angles (the edges of the hand) to drop lower on the screen computationally, simulating a perfect arc/fan.
+    \item \texttt{translateX} is critical for mobile responsiveness. Without horizontal translation, if a player possesses 15 cards, they will all rotate from the exact same center pixel, creating a dense overlapping clump. We spread them out, but mathematically decrease the spacing as the hand gets bigger (clamping at a minimum 20px overlap) to keep them on-screen.
+\end{itemize}
+
+\subsection{Mobile Tap-to-Select Logic}
+Modern web development requires adapting to touchscreens, which do not possess a "hover" state.
+
+\begin{minted}[bgcolor=lightgray!20,linenos,firstnumber=276]{javascript}
+    if (selectedCardIndex === index) {
+        wrapper.style.transform = `translateX(${translateX}px) translateY(-50px) 
+                                   scale(1.15) rotate(0deg)`;
+    }
+
+    const cardEl = createCardHTML(card, playable, (e) => {
+        if (playable) {
+            e.stopPropagation(); 
+            if (selectedCardIndex === index) {
+                // Second Tap: Play card
+                socket.emit('playCard', { roomId: state.roomId, cardIndex: index });
+                selectedCardIndex = null;
+            } else {
+                // First Tap: Select & Preview
+                selectedCardIndex = index;
+                renderState(state); 
+            }
+        }
+    });
+\end{minted}
+
+\textbf{Explanation:}
+This creates a seamless "Tap to Preview, Tap twice to Play" mechanic. 
+When a user taps a card, \texttt{selectedCardIndex} is updated. The renderer runs immediately, overriding the curve math to push the selected card up (\texttt{translateY(-50px)}), scale it up, and straighten it (\texttt{rotate(0deg)}) so the user can see it past their thumb on a mobile screen. 
+A second tap matches the index, which finally emits the execution command to the server. \texttt{e.stopPropagation()} prevents event bubbling from accidentally triggering clicks on the document background, which is bound to a "deselect" listener.
+
+\section{Summary}
+In a software engineering interview, walking an interviewer through this codebase highlights several critical competencies:
+\begin{enumerate}
+    \item \textbf{Systems Design Knowledge:} Understanding the necessity of Authoritative Servers to prevent client-side sequence hacking and cheaters in multiplayer ecosystems.
+    \item \textbf{Object-Oriented Programming:} Utilizing a class-based \texttt{GameEngine} that manages its own state and dependencies cleanly.
+    \item \textbf{Real-Time Asynchronous Processing:} Managing WebSockets via Socket.io to keep state universally synchronized with millisecond latency.
+    \item \textbf{Complex UI/UX Mapping:} Utilizing pure mathematical formulas (trigonometry variants) for dynamic frontend layouts rather than relying on framework plugins.
+\end{enumerate}
+
+\end{document}
